@@ -3,8 +3,18 @@
 Checks every 5 minutes (via GitHub Actions) whether these e2zstore.com products are
 in stock, and sends a push notification through [ntfy](https://ntfy.sh):
 
-- Rs. 1000 PSN Wallet Top Up (ID 8673)
-- Rs. 2000 PSN Wallet Top Up (ID 8590)
+All 8 cards in the store's "PSN INDIA (IND)" category:
+
+| Card | Product ID |
+|---|---|
+| Rs. 1000 PSN Wallet Top Up | 8673 |
+| Rs. 2000 PSN Wallet Top Up | 8590 |
+| Rs. 3000 PSN Wallet Top Up | 8626 |
+| Rs. 4000 PSN Wallet Top Up | 8677 |
+| Rs. 5000 PlayStation Store Gift Card | 383915 |
+| Rs. 7000 PlayStation Store Gift Card | 529864 |
+| Rs. 8000 PlayStation Store Gift Card | 509537 |
+| Rs. 9000 PlayStation Store Gift Card | 529871 |
 
 It reads the store's WooCommerce Store API (`/wp-json/wc/store/v1/products/<id>`)
 because the product pages are behind a Cloudflare challenge.

@@ -46,6 +46,36 @@ PRODUCTS = [
         "name": "Rs. 2000 PSN Wallet Top Up",
         "url": "https://e2zstore.com/product/rs-2000-playstation-network-wallet-top-up/",
     },
+    {
+        "id": 8626,
+        "name": "Rs. 3000 PSN Wallet Top Up",
+        "url": "https://e2zstore.com/product/rs-3000-playstation-network-wallet-top-up/",
+    },
+    {
+        "id": 8677,
+        "name": "Rs. 4000 PSN Wallet Top Up",
+        "url": "https://e2zstore.com/product/rs-4000-playstation-network-wallet-top-up/",
+    },
+    {
+        "id": 383915,
+        "name": "Rs. 5000 PSN Wallet Top Up",
+        "url": "https://e2zstore.com/product/rs-5000-playstation-store-gift-card-wallet-top-up/",
+    },
+    {
+        "id": 529864,
+        "name": "Rs. 7000 PSN Wallet Top Up",
+        "url": "https://e2zstore.com/product/rs-7000-sony-playstation-store-gift-card-wallet-top-up/",
+    },
+    {
+        "id": 509537,
+        "name": "Rs. 8000 PSN Wallet Top Up",
+        "url": "https://e2zstore.com/product/rs-8000-sony-playstation-store-gift-card-wallet-top-up/",
+    },
+    {
+        "id": 529871,
+        "name": "Rs. 9000 PSN Wallet Top Up",
+        "url": "https://e2zstore.com/product/rs-9000-sony-playstation-store-gift-card-wallet-top-up/",
+    },
 ]
 
 API_BASE = "https://e2zstore.com/wp-json/wc/store/v1/products"
