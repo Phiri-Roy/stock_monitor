@@ -1,0 +1,56 @@
+name: Stock monitor
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"      # every 5 minutes (GitHub may delay runs a bit)
+  workflow_dispatch:
+    inputs:
+      ping:
+        description: "Send a test notification instead of checking stock"
+        type: boolean
+        default: false
+
+concurrency:
+  group: stock-monitor
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - run: pip install -r requirements.txt
+
+      # Remember "already notified" between runs so you get one alert per restock
+      - name: Restore state
+        uses: actions/cache/restore@v4
+        with:
+          path: state.json
+          key: stock-state-${{ github.run_id }}
+          restore-keys: stock-state-
+
+      - name: Send test notification
+        if: ${{ inputs.ping }}
+        env:
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+        run: python stock_monitor.py --ping
+
+      - name: Check stock
+        if: ${{ !inputs.ping }}
+        env:
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+        run: python stock_monitor.py --single
+
+      - name: Save state
+        if: ${{ always() && !inputs.ping && hashFiles('state.json') != '' }}
+        uses: actions/cache/save@v4
+        with:
+          path: state.json
+          key: stock-state-${{ github.run_id }}
