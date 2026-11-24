@@ -1,16 +1,19 @@
 """
-e2zstore stock monitor - Rs. 1000 PSN Wallet Top Up, alerts via ntfy.
+e2zstore stock monitor - watches several products, alerts via ntfy.
 
-Uses the WooCommerce Store API (JSON) instead of scraping the product page,
-because the product page is behind a Cloudflare challenge and returns 403
-to scripts. The API endpoint by product ID also works while the item is
-out of stock (the store hides out-of-stock items from slug/search queries).
+Uses the WooCommerce Store API (JSON) instead of scraping product pages,
+because the pages are behind a Cloudflare challenge and return 403 to
+scripts. Querying by product ID also works while an item is out of stock
+(the store hides out-of-stock items from slug/search queries).
+
+To find a new product's ID, search the API including out-of-stock items:
+    https://e2zstore.com/wp-json/wc/store/v1/products?search=<words>&stock_status=outofstock
 
 Modes:
     python stock_monitor.py            # loop forever (run on your own PC)
-    python stock_monitor.py --single   # one check, remembers state in
-                                       # state.json (used by GitHub Actions)
-    python stock_monitor.py --test     # one check, prints result, no alerts
+    python stock_monitor.py --single   # one round of checks, remembers state
+                                       # in state.json (used by GitHub Actions)
+    python stock_monitor.py --test     # one round, prints results, no alerts
     python stock_monitor.py --ping     # send a test notification to ntfy
 
 Settings come from environment variables (GitHub secrets in the cloud):
@@ -31,9 +34,21 @@ import requests
 # ==========================================
 # CONFIGURATION
 # ==========================================
-PRODUCT_ID = 8673
-PRODUCT_NAME = "Rs. 1000 PSN Wallet Top Up"
-PRODUCT_URL = "https://e2zstore.com/product/rs-1000-playstation-network-wallet-top-up/"
+# Products to watch. "id" is the WooCommerce product ID.
+PRODUCTS = [
+    {
+        "id": 8673,
+        "name": "Rs. 1000 PSN Wallet Top Up",
+        "url": "https://e2zstore.com/product/rs-1000-playstation-network-wallet-top-up/",
+    },
+    {
+        "id": 8590,
+        "name": "Rs. 2000 PSN Wallet Top Up",
+        "url": "https://e2zstore.com/product/rs-2000-playstation-network-wallet-top-up/",
+    },
+]
+
+API_BASE = "https://e2zstore.com/wp-json/wc/store/v1/products"
 
 NTFY_SERVER = os.environ.get("NTFY_SERVER", "https://ntfy.sh").rstrip("/")
 NTFY_TOPIC = os.environ.get("NTFY_TOPIC", "")    # or paste your topic here for local runs
@@ -43,8 +58,6 @@ JITTER_SECONDS = (5, 30)                  # loop mode only
 MAX_CONSECUTIVE_ERRORS = 5                # alert if the monitor seems broken
 STATE_FILE = Path(__file__).with_name("state.json")
 # ==========================================
-
-API_URL = f"https://e2zstore.com/wp-json/wc/store/v1/products/{PRODUCT_ID}"
 
 session = requests.Session()
 session.headers.update({
@@ -85,7 +98,7 @@ def notify(title: str, message: str, priority: str = "default",
         return False
 
 
-def check_stock() -> tuple[bool | None, str]:
+def check_stock(product_id: int) -> tuple[bool | None, str]:
     """
     Returns (status, detail):
         (True, ...)  -> in stock and purchasable
@@ -93,7 +106,7 @@ def check_stock() -> tuple[bool | None, str]:
         (None, ...)  -> could not determine (network error, blocked, API changed)
     """
     try:
-        response = session.get(API_URL, timeout=20)
+        response = session.get(f"{API_BASE}/{product_id}", timeout=20)
     except requests.RequestException as e:
         return None, f"network error: {e}"
 
@@ -118,75 +131,93 @@ def check_stock() -> tuple[bool | None, str]:
     return in_stock, text
 
 
-def process(state: dict) -> dict:
-    """Runs one check and sends any alerts. Updates and returns state."""
-    status, detail = check_stock()
+def new_product_state() -> dict:
+    return {"notified": False, "errors": 0, "error_alerted": False}
+
+
+def process(product: dict, state: dict) -> dict:
+    """Runs one check for one product and sends any alerts. Returns new state."""
+    name = product["name"]
+    status, detail = check_stock(product["id"])
 
     if status is None:
         state["errors"] += 1
-        log(f"Check failed ({state['errors']} in a row): {detail}")
+        log(f"[{name}] Check failed ({state['errors']} in a row): {detail}")
         if state["errors"] >= MAX_CONSECUTIVE_ERRORS and not state["error_alerted"]:
-            if notify("Stock monitor problem",
+            if notify(f"Stock monitor problem: {name}",
                       f"{state['errors']} failed checks in a row.\nLast error: {detail}",
-                      priority="default", tags="warning"):
+                      tags="warning"):
                 state["error_alerted"] = True
         return state
 
     if state["error_alerted"]:
-        notify("Stock monitor recovered", "Checks are working normally again.",
+        notify(f"Stock monitor recovered: {name}", "Checks are working normally again.",
                priority="low", tags="white_check_mark")
     state["errors"] = 0
     state["error_alerted"] = False
 
     if status:
         if not state["notified"]:
-            log(f"IN STOCK! ({detail})")
-            if notify(f"IN STOCK: {PRODUCT_NAME}",
+            log(f"[{name}] IN STOCK! ({detail})")
+            if notify(f"IN STOCK: {name}",
                       f"{detail}\nTap to open the product page.",
-                      priority="urgent", tags="rotating_light", click=PRODUCT_URL):
+                      priority="urgent", tags="rotating_light", click=product["url"]):
                 state["notified"] = True
         else:
-            log(f"Still in stock ({detail}), alert already sent.")
+            log(f"[{name}] Still in stock ({detail}), alert already sent.")
     else:
         if state["notified"]:
-            log("Went back out of stock. Resetting alert.")
+            log(f"[{name}] Went back out of stock. Resetting alert.")
             state["notified"] = False
         else:
-            log(f"Out of stock ({detail}).")
+            log(f"[{name}] Out of stock ({detail}).")
     return state
 
 
-def load_state() -> dict:
-    state = {"notified": False, "errors": 0, "error_alerted": False}
+def run_round(states: dict) -> dict:
+    """Checks every product once. `states` maps product ID (str) -> state."""
+    for i, product in enumerate(PRODUCTS):
+        key = str(product["id"])
+        states[key] = process(product, states.get(key) or new_product_state())
+        if i < len(PRODUCTS) - 1:
+            time.sleep(random.uniform(1, 3))   # small gap between requests
+    return states
+
+
+def load_states() -> dict:
     try:
-        state.update(json.loads(STATE_FILE.read_text()))
+        data = json.loads(STATE_FILE.read_text())
     except (FileNotFoundError, ValueError):
-        pass
-    return state
+        return {}
+    if "notified" in data:                    # old single-product format
+        return {str(PRODUCTS[0]["id"]): {**new_product_state(), **data}}
+    return data
 
 
 def main() -> None:
     args = set(sys.argv[1:])
-    log(f"Watching: {API_URL}")
+    log(f"Watching {len(PRODUCTS)} product(s): " + ", ".join(p["name"] for p in PRODUCTS))
 
     if "--ping" in args:
-        ok = notify("Stock monitor test", "If you see this, ntfy alerts work.",
-                    tags="bell", click=PRODUCT_URL)
+        ok = notify("Stock monitor test", "If you see this, ntfy alerts work.", tags="bell")
         sys.exit(0 if ok else 1)
 
     if "--test" in args:
-        status, detail = check_stock()
-        log(f"Result: {status} ({detail})")
-        sys.exit(0 if status is not None else 1)
+        ok = True
+        for product in PRODUCTS:
+            status, detail = check_stock(product["id"])
+            log(f"[{product['name']}] Result: {status} ({detail})")
+            ok = ok and status is not None
+        sys.exit(0 if ok else 1)
 
     if "--single" in args:
-        state = process(load_state())
-        STATE_FILE.write_text(json.dumps(state))
+        states = run_round(load_states())
+        STATE_FILE.write_text(json.dumps(states))
         return
 
-    state = {"notified": False, "errors": 0, "error_alerted": False}
+    states: dict = {}
     while True:
-        state = process(state)
+        states = run_round(states)
         sleep_time = CHECK_INTERVAL_SECONDS + random.randint(*JITTER_SECONDS)
         log(f"Next check in {sleep_time}s\n")
         time.sleep(sleep_time)
