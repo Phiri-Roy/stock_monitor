@@ -243,6 +243,11 @@ def main() -> None:
     if "--single" in args:
         states = run_round(load_states())
         STATE_FILE.write_text(json.dumps(states))
+        failed = [p["name"] for p in PRODUCTS if states[str(p["id"])]["errors"] > 0]
+        if failed:
+            # Mark the GitHub Actions run as failed (red) so problems are visible.
+            log(f"{len(failed)} of {len(PRODUCTS)} check(s) failed this run.")
+            sys.exit(1)
         return
 
     states: dict = {}
